@@ -7,22 +7,8 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.ImageView
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import com.example.profilelandmarks.ui.theme.ProfileLandmarksTheme
-import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.tasks.vision.core.RunningMode
-import com.google.mediapipe.tasks.vision.facedetector.FaceDetectorResult
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
-import com.google.mlkit.vision.face.FaceContour
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
@@ -39,11 +25,36 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        val assetManager = assets
+        val foldersPath = "new_cfp/right"
+        val folders = assetManager.list(foldersPath)
+
+        if (folders != null) {
+            for (folder in folders) {
+
+                Log.d("Assets", "Encontrei: $folder")
+
+                val files = assetManager.list("minhaPasta/$folder")
+                    ?.filter { it.endsWith(".jpg", ignoreCase = true) }  // 🔑 só pega JPG
+                    ?: emptyList()
+
+                for (file in files) {
+                    val path = "$foldersPath/$folder/$file"
+
+                    // 3) Abrir a imagem
+                    val inputStream = assetManager.open(path)
+                    val bitmap = BitmapFactory.decodeStream(inputStream)
+
+                    Log.d("Assets", "Carreguei $path com tamanho: ${bitmap.width}x${bitmap.height}")
+            }
+        }
+            }
+
         imageView = findViewById(R.id.imageView)
         overlayView = findViewById(R.id.overlayView)
 
         // Carregar imagem .jpg da pasta assets
-        val inputStream: InputStream = assets.open("01.jpg")
+        val inputStream: InputStream = assets.open("01_f.jpg")
         bitmap = BitmapFactory.decodeStream(inputStream)
         imageView.setImageBitmap(bitmap)
 
@@ -55,7 +66,6 @@ class MainActivity : ComponentActivity() {
             .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
             .build()
 
-        getMediaPipeLandmarks(image, bitmap)
         detector = FaceDetection.getClient(options)
 
         // Usar post {} para garantir que o ImageView já foi medido
@@ -110,7 +120,7 @@ class MainActivity : ComponentActivity() {
             val allContours = face.allContours
 
             for(contour in allContours) {
-                if(contour.faceContourType in intArrayOf(FaceContour.FACE)) {
+                //if(contour.faceContourType in intArrayOf(FaceContour.FACE)) {
                     for(contourPoint in contour.points) {
                         //if(count !in intArrayOf(100, 93, 107, 119, 123)) {
                         if(count < 19 ) {
@@ -126,8 +136,8 @@ class MainActivity : ComponentActivity() {
                         points.add(Triple(mappedX, mappedY, count))
                         count++
                     }
-                }
-                else count += contour.points.size
+                //}
+                //else count += contour.points.size
             }
 
             if (!isFinishing && !isDestroyed) {
@@ -161,34 +171,5 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         detector.close() // Libera recursos do ML Kit
-    }
-
-    public fun getMediaPipeLandmarks(image: InputImage, bitmap: Bitmap){
-        // Configurações do detector
-        val options = com.google.mediapipe.tasks.vision.facedetector.FaceDetector.FaceDetectorOptions.builder()
-            .setRunningMode(RunningMode.IMAGE) // processa uma imagem estática
-            .build()
-
-        val detector = com.google.mediapipe.tasks.vision.facedetector.FaceDetector.createFromOptions(this, options)
-
-        // Converte o Bitmap para MediaPipe Image
-        val mpImage = BitmapImageBuilder(bitmap).build()
-        // Executa a detecção
-        val result: FaceDetectorResult = detector.detect(mpImage)
-
-        // Percorre os rostos detectados
-        for ((i, face) in result.detections().withIndex()) {
-            Log.d("MediaPipe", "Face $i bbox: ${face.boundingBox()}")
-
-            // Pontos de referência principais
-            val cocos = face.keypoints()
-            for(coco in cocos.get()) {
-                Log.d("MediaPipe", "  Ponto $: (${coco.x()}, ${coco.y()})")
-            }
-        }
-
-        detector.close()
-
-
     }
 }
