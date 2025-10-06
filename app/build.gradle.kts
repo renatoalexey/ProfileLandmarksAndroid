@@ -52,6 +52,7 @@ dependencies {
     implementation(libs.vision.common)
     implementation(libs.play.services.mlkit.face.detection)
     implementation(libs.mediapipe.tasks.vision)
+    implementation(libs.okhttp)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

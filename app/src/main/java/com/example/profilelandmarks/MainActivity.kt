@@ -1,5 +1,6 @@
 package com.example.profilelandmarks
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -7,27 +8,23 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.ImageView
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import com.example.profilelandmarks.ui.theme.ProfileLandmarksTheme
-import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.tasks.vision.core.RunningMode
-import com.google.mediapipe.tasks.vision.facedetector.FaceDetectorResult
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
-import com.google.mlkit.vision.face.FaceContour
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.google.mlkit.vision.face.FaceLandmark
 import java.io.InputStream
+import com.example.profilelandmarks.service.CfpManager
+import com.example.profilelandmarks.service.client
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.OkHttpClient
+import kotlinx.coroutines.*
 
 class MainActivity : ComponentActivity() {
     private lateinit var overlayView: OverlayView
@@ -39,12 +36,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        val cfpManager = CfpManager()
+
+        //val btn = findViewById<Button>(R.id.btnGoToSecond)
+        /*btn.setOnClickListener {
+            val intent = Intent(this, MediaPipeLandmarks::class.java)
+            startActivity(intent)
+        }*/
+
         imageView = findViewById(R.id.imageView)
         overlayView = findViewById(R.id.overlayView)
 
         // Carregar imagem .jpg da pasta assets
-        val inputStream: InputStream = assets.open("01.jpg")
+        val inputStream: InputStream = assets.open("04.jpg")
         bitmap = BitmapFactory.decodeStream(inputStream)
+
+        bitmap = resizeImage(bitmap, 515, 580)
+
         imageView.setImageBitmap(bitmap)
 
         val image = InputImage.fromBitmap(bitmap, 0)
@@ -55,8 +63,10 @@ class MainActivity : ComponentActivity() {
             .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
             .build()
 
-        getMediaPipeLandmarks(image, bitmap)
+        //getMediaPipeLandmarks(image, bitmap)
         detector = FaceDetection.getClient(options)
+
+       runMLKit(detector)
 
         // Usar post {} para garantir que o ImageView já foi medido
         imageView.post {
@@ -110,7 +120,7 @@ class MainActivity : ComponentActivity() {
             val allContours = face.allContours
 
             for(contour in allContours) {
-                if(contour.faceContourType in intArrayOf(FaceContour.FACE)) {
+                //if(contour.faceContourType in intArrayOf(FaceContour.FACE)) {
                     for(contourPoint in contour.points) {
                         //if(count !in intArrayOf(100, 93, 107, 119, 123)) {
                         if(count < 19 ) {
@@ -126,8 +136,8 @@ class MainActivity : ComponentActivity() {
                         points.add(Triple(mappedX, mappedY, count))
                         count++
                     }
-                }
-                else count += contour.points.size
+                //}
+                //else count += contour.points.size
             }
 
             if (!isFinishing && !isDestroyed) {
@@ -158,37 +168,81 @@ class MainActivity : ComponentActivity() {
         return Pair(mappedX, mappedY)
     }
 
+    private fun resizeImage(
+        bitmap: Bitmap,
+        width: Int,
+        height: Int
+    ): Bitmap {
+         return Bitmap.createScaledBitmap(
+            bitmap,
+            width,
+            height,
+            true // filter = smooth scaling
+        )
+    }
     override fun onDestroy() {
         super.onDestroy()
         detector.close() // Libera recursos do ML Kit
     }
 
-    public fun getMediaPipeLandmarks(image: InputImage, bitmap: Bitmap){
-        // Configurações do detector
-        val options = com.google.mediapipe.tasks.vision.facedetector.FaceDetector.FaceDetectorOptions.builder()
-            .setRunningMode(RunningMode.IMAGE) // processa uma imagem estática
-            .build()
+    fun runMLKit(faceDetector: FaceDetector) {
+        try {
+            assets.open("cfp.txt").bufferedReader().use { reader ->
+                reader.forEachLine { line ->
+                    val image = getImageFromPath(line)
+                    println(line) // aqui você itera linha por linha
 
-        val detector = com.google.mediapipe.tasks.vision.facedetector.FaceDetector.createFromOptions(this, options)
+                    // 2. Troca extensão para ".txt"
+                    val fiducial = line.replace("Images", "Fiducials").replaceAfterLast(".", "txt")
 
-        // Converte o Bitmap para MediaPipe Image
-        val mpImage = BitmapImageBuilder(bitmap).build()
-        // Executa a detecção
-        val result: FaceDetectorResult = detector.detect(mpImage)
+                    callApi(String.format("ground/truth/points?fiducials_folder=%s",
+                        String.format("F:\\Bases\\cfp-dataset\\Data\\%s", fiducial))) { resposta ->
+                        println("Resposta da soma: $resposta")
+                    }
+                }
+            }
+        } catch (e: Exception){
+            e.printStackTrace()
+        }
+        //reader.close()
+    }
 
-        // Percorre os rostos detectados
-        for ((i, face) in result.detections().withIndex()) {
-            Log.d("MediaPipe", "Face $i bbox: ${face.boundingBox()}")
+    fun callApi(endpoint: String, callback: (String?) -> Unit) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // coloque o IP do PC onde roda o Python
+                val request = Request.Builder()
+                    .url(String.format("http://192.168.0.34:5000/%s", endpoint))
+                    .build()
 
-            // Pontos de referência principais
-            val cocos = face.keypoints()
-            for(coco in cocos.get()) {
-                Log.d("MediaPipe", "  Ponto $: (${coco.x()}, ${coco.y()})")
+                val serverResponse: Response = client.newCall(request).execute()
+                val response = serverResponse.body?.string()
+
+                withContext(Dispatchers.Main) {
+                    callback(response)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    callback(null)
+                }
             }
         }
+    }
 
-        detector.close()
+    private fun getImageFromPath(imagePath: String
+    ): InputImage {
+        try {
 
+            val inputStream: InputStream = assets.open(imagePath)
+            val bitmap = BitmapFactory.decodeStream(inputStream)
+            //val bitmap = carregarBitmapWindows(context, imagePath)
+            if (bitmap != null)
+                return InputImage.fromBitmap(bitmap, 0)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
+        return InputImage.fromBitmap(BitmapFactory.decodeFile(imagePath), 0)
     }
 }
