@@ -11,13 +11,13 @@ class OverlayView(context: Context, attrs: AttributeSet) : View(context, attrs) 
 
     private val points = mutableListOf<Triple<Float, Float, Int>>() // x, y, índice
     private val paintCircle = Paint().apply {
-        color = Color.RED
+        color = Color.BLUE
         style = Paint.Style.FILL
         isAntiAlias = true
     }
     private val paintText = Paint().apply {
-        color = Color.GREEN
-        textSize = 36f
+        color = Color.BLUE
+        textSize = 24f
         isAntiAlias = true
     }
 

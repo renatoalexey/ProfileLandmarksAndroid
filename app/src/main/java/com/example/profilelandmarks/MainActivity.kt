@@ -43,11 +43,37 @@ class MainActivity : ComponentActivity() {
             val intent = Intent(this, MediaPipeLandmarks::class.java)
             startActivity(intent)
         }*/
+        val assetManager = assets
+        val foldersPath = "new_cfp/right"
+        val folders = assetManager.list(foldersPath)
+
+        if (folders != null) {
+            for (folder in folders) {
+
+                Log.d("Assets", "Encontrei: $folder")
+
+                val files = assetManager.list("minhaPasta/$folder")
+                    ?.filter { it.endsWith(".jpg", ignoreCase = true) }  // 🔑 só pega JPG
+                    ?: emptyList()
+
+                for (file in files) {
+                    val path = "$foldersPath/$folder/$file"
+
+                    // 3) Abrir a imagem
+                    val inputStream = assetManager.open(path)
+                    val bitmap = BitmapFactory.decodeStream(inputStream)
+
+                    Log.d("Assets", "Carreguei $path com tamanho: ${bitmap.width}x${bitmap.height}")
+            }
+        }
+            }
+
 
         imageView = findViewById(R.id.imageView)
         overlayView = findViewById(R.id.overlayView)
 
         // Carregar imagem .jpg da pasta assets
+
         val inputStream: InputStream = assets.open("04.jpg")
         bitmap = BitmapFactory.decodeStream(inputStream)
 
@@ -63,7 +89,6 @@ class MainActivity : ComponentActivity() {
             .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
             .build()
 
-        //getMediaPipeLandmarks(image, bitmap)
         detector = FaceDetection.getClient(options)
 
        runMLKit(detector)
