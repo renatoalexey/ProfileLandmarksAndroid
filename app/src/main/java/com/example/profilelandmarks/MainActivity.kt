@@ -23,8 +23,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.OkHttpClient
-import kotlinx.coroutines.*
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     private lateinit var overlayView: OverlayView
@@ -220,8 +220,20 @@ class MainActivity : ComponentActivity() {
                     // 2. Troca extensão para ".txt"
                     val fiducial = line.replace("Images", "Fiducials").replaceAfterLast(".", "txt")
 
+                    //val fullEndpoint = String.format("F:\\Bases\\cfp-dataset\\Data\\%s", fiducial)
+                    val fullEndpoint = String.format("/home/renatoalexey/Documents/Bases/cfp-dataset/Data/%s", fiducial)
+
+                    getMLKitResult(faceDetector, image) { libraryPoints ->
+                        if(libraryPoints != null) {
+                            callApi(String.format("teste?library_pts=%s&fiducials_folder=%s",
+                                libraryPoints, fullEndpoint)) { resposta ->
+                                println("Resposta da soma: $resposta")
+                            }
+                        }
+                    }
+
                     callApi(String.format("ground/truth/points?fiducials_folder=%s",
-                        String.format("F:\\Bases\\cfp-dataset\\Data\\%s", fiducial))) { resposta ->
+                        fullEndpoint)) { resposta ->
                         println("Resposta da soma: $resposta")
                     }
                 }
@@ -237,7 +249,7 @@ class MainActivity : ComponentActivity() {
             try {
                 // coloque o IP do PC onde roda o Python
                 val request = Request.Builder()
-                    .url(String.format("http://192.168.0.34:5000/%s", endpoint))
+                    .url(String.format("http://172.115.2.82:5000/%s", endpoint))
                     .build()
 
                 val serverResponse: Response = client.newCall(request).execute()
@@ -269,5 +281,37 @@ class MainActivity : ComponentActivity() {
         }
 
         return InputImage.fromBitmap(BitmapFactory.decodeFile(imagePath), 0)
+    }
+
+    private fun getMLKitResult(
+        faceDetector: FaceDetector,
+        image: InputImage,
+        onResult: (List<Pair<Float, Float>>?) -> Unit) {
+            faceDetector.process(image)
+                .addOnSuccessListener { faces ->
+                    if (!isFinishing && !isDestroyed) {
+                        if (faces.size == 1) {
+                            val face = faces[0]
+
+                            onResult(convertsLandmarksIntoJson(face.allLandmarks))
+                        } else {
+                            Log.e("MLKit", "WARN: Number of faces different than one detected")
+                            onResult(null)
+                        }
+                    }
+                }
+                .addOnFailureListener { e ->
+                    if (!isFinishing && !isDestroyed) {
+                        Log.e("MLKit", "Err: ${e.message}")
+                        onResult(null)
+                    }
+                }
+    }
+
+    private fun convertsLandmarksIntoJson(allLandmarks: List<FaceLandmark>): List<Pair<Float, Float>> {
+        return allLandmarks.map {
+            val pos = it.position
+            Pair(pos.x, pos.y)
+        }
     }
 }
