@@ -1,6 +1,5 @@
 package com.example.profilelandmarks
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -17,14 +16,13 @@ import com.google.mlkit.vision.face.FaceLandmark
 import java.io.InputStream
 import com.example.profilelandmarks.service.CfpManager
 import com.example.profilelandmarks.service.client
+import com.google.mlkit.vision.face.FaceContour
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import okhttp3.Response
-import org.json.JSONArray
-import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     private lateinit var overlayView: OverlayView
@@ -220,22 +218,22 @@ class MainActivity : ComponentActivity() {
                     // 2. Troca extensão para ".txt"
                     val fiducial = line.replace("Images", "Fiducials").replaceAfterLast(".", "txt")
 
-                    //val fullEndpoint = String.format("F:\\Bases\\cfp-dataset\\Data\\%s", fiducial)
-                    val fullEndpoint = String.format("/home/renatoalexey/Documents/Bases/cfp-dataset/Data/%s", fiducial)
+                    val fullEndpoint = String.format("F:\\Bases\\cfp-dataset\\Data\\%s", fiducial)
+                    //val fullEndpoint = String.format("/home/renatoalexey/Documents/Bases/cfp-dataset/Data/%s", fiducial)
 
                     getMLKitResult(faceDetector, image) { libraryPoints ->
                         if(libraryPoints != null) {
-                            callApi(String.format("teste?library_pts=%s&fiducials_folder=%s",
+                            callApi(String.format("compare/points?library_pts=%s&fiducials_folder=%s",
                                 libraryPoints, fullEndpoint)) { resposta ->
                                 println("Resposta da soma: $resposta")
                             }
                         }
                     }
 
-                    callApi(String.format("ground/truth/points?fiducials_folder=%s",
+                    /*callApi(String.format("ground/truth/points?fiducials_folder=%s",
                         fullEndpoint)) { resposta ->
                         println("Resposta da soma: $resposta")
-                    }
+                    }*/
                 }
             }
         } catch (e: Exception){
@@ -249,7 +247,7 @@ class MainActivity : ComponentActivity() {
             try {
                 // coloque o IP do PC onde roda o Python
                 val request = Request.Builder()
-                    .url(String.format("http://172.115.2.82:5000/%s", endpoint))
+                    .url(String.format("http://192.168.0.34:5000/%s", endpoint))
                     .build()
 
                 val serverResponse: Response = client.newCall(request).execute()
@@ -292,10 +290,13 @@ class MainActivity : ComponentActivity() {
                     if (!isFinishing && !isDestroyed) {
                         if (faces.size == 1) {
                             val face = faces[0]
-
-                            onResult(convertsLandmarksIntoJson(face.allLandmarks))
-                        } else {
-                            Log.e("MLKit", "WARN: Number of faces different than one detected")
+                            onResult(convertsLandmarksIntoJson(face.allContours))
+                        } else if (faces.isEmpty()) {
+                            Log.e("MLKit", "WARN: No faces detected")
+                            onResult(ArrayList())
+                        }
+                        else {
+                            Log.e("MLKit", "WARN: Two or more faces detected")
                             onResult(null)
                         }
                     }
@@ -308,10 +309,14 @@ class MainActivity : ComponentActivity() {
                 }
     }
 
-    private fun convertsLandmarksIntoJson(allLandmarks: List<FaceLandmark>): List<Pair<Float, Float>> {
-        return allLandmarks.map {
-            val pos = it.position
-            Pair(pos.x, pos.y)
+    private fun convertsLandmarksIntoJson(allContours: List<FaceContour>): List<Pair<Float, Float>> {
+        val allLandmarks = ArrayList<Pair<Float, Float>>()
+
+        for(contour in allContours) {
+            allLandmarks.addAll(contour.points.map {
+                Pair(it.x, it.y)
+            })
         }
+        return allLandmarks
     }
 }
