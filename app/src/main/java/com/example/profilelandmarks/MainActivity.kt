@@ -20,6 +20,8 @@ import com.google.mlkit.vision.face.FaceContour
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import okhttp3.Response
@@ -65,8 +67,6 @@ class MainActivity : ComponentActivity() {
             }
         }
             }
-
-
         imageView = findViewById(R.id.imageView)
         overlayView = findViewById(R.id.overlayView)
 
@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
 
         bitmap = resizeImage(bitmap, 515, 580)
 
-        imageView.setImageBitmap(bitmap)
+        //imageView.setImageBitmap(bitmap)
 
         val image = InputImage.fromBitmap(bitmap, 0)
 
@@ -212,23 +212,35 @@ class MainActivity : ComponentActivity() {
         try {
             assets.open("cfp.txt").bufferedReader().use { reader ->
                 reader.forEachLine { line ->
-                    val image = getImageFromPath(line)
+                    var image = getImageFromPath(line)
                     println(line) // aqui você itera linha por linha
 
-                    // 2. Troca extensão para ".txt"
-                    val fiducial = line.replace("Images", "Fiducials").replaceAfterLast(".", "txt")
+                    val fullImagePath = String.format("F:\\Bases\\cfp-dataset\\Data\\%s", line)
+                    callApiImage(String.format("image?image_path=%s", fullImagePath)) {
+                            bytes ->
+                                if (bytes != null) {
+                                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                    image = InputImage.fromBitmap(bitmap, 0)
+                                    //imageView.setImageBitmap(bitmap)
+                                    // 2. Troca extensão para ".txt"
+                                    val fiducial = line.replace("Images", "Fiducials").replaceAfterLast(".", "txt")
 
-                    val fullEndpoint = String.format("F:\\Bases\\cfp-dataset\\Data\\%s", fiducial)
-                    //val fullEndpoint = String.format("/home/renatoalexey/Documents/Bases/cfp-dataset/Data/%s", fiducial)
+                                    val fullEndpoint = String.format("F:\\Bases\\cfp-dataset\\Data\\%s", fiducial)
+                                    //val fullEndpoint = String.format("/home/renatoalexey/Documents/Bases/cfp-dataset/Data/%s", fiducial)
 
-                    getMLKitResult(faceDetector, image) { libraryPoints ->
-                        if(libraryPoints != null) {
-                            callApi(String.format("compare/points?library_pts=%s&fiducials_folder=%s",
-                                libraryPoints, fullEndpoint)) { resposta ->
-                                println("Resposta da soma: $resposta")
-                            }
-                        }
+                                    getMLKitResult(faceDetector, image) { libraryPoints ->
+                                        if(libraryPoints != null) {
+                                            callApi(String.format("compare/points?library_pts=%s&image_path=%s",
+                                                libraryPoints, fullImagePath)) { resposta ->
+                                                println("Resposta da soma: $resposta")
+                                            }
+                                        }
+                                    }
+                                }
                     }
+
+
+
 
                     /*callApi(String.format("ground/truth/points?fiducials_folder=%s",
                         fullEndpoint)) { resposta ->
@@ -241,25 +253,55 @@ class MainActivity : ComponentActivity() {
         }
         //reader.close()
     }
-
+    val apiMutex = Mutex()
     fun callApi(endpoint: String, callback: (String?) -> Unit) {
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                // coloque o IP do PC onde roda o Python
-                val request = Request.Builder()
-                    .url(String.format("http://192.168.0.34:5000/%s", endpoint))
-                    .build()
+            apiMutex.withLock {
+                    try {
+                        // coloque o IP do PC onde roda o Python
+                        val request = Request.Builder()
+                            .url(String.format("http://192.168.0.44:5000/%s", endpoint))
+                            .build()
 
-                val serverResponse: Response = client.newCall(request).execute()
-                val response = serverResponse.body?.string()
+                        val serverResponse: Response = client.newCall(request).execute()
+                        val response = serverResponse.body?.string()
 
-                withContext(Dispatchers.Main) {
-                    callback(response)
+                        withContext(Dispatchers.Main) {
+                            callback(response)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        withContext(Dispatchers.Main) {
+                            callback(null)
+                        }
+                    }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                withContext(Dispatchers.Main) {
-                    callback(null)
+        }
+    }
+
+    fun callApiImage(endpoint: String, callback: (ByteArray?) -> Unit) {
+        CoroutineScope(Dispatchers.IO).launch {
+            apiMutex.withLock {
+                try {
+                    val request = Request.Builder()
+                        .url("http://192.168.0.44:5000/$endpoint")
+                        .build()
+
+                    val serverResponse: Response = client.newCall(request).execute()
+
+                    // Lê os bytes da imagem
+                    val bytes = serverResponse.body?.bytes()
+
+                    // Volta pra Main Thread
+                    withContext(Dispatchers.Main) {
+                        callback(bytes)
+                    }
+
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    withContext(Dispatchers.Main) {
+                        callback(null)
+                    }
                 }
             }
         }
@@ -284,21 +326,15 @@ class MainActivity : ComponentActivity() {
     private fun getMLKitResult(
         faceDetector: FaceDetector,
         image: InputImage,
-        onResult: (List<Pair<Float, Float>>?) -> Unit) {
+        onResult: (List<List<Pair<Float, Float>>>?) -> Unit) {
             faceDetector.process(image)
                 .addOnSuccessListener { faces ->
                     if (!isFinishing && !isDestroyed) {
-                        if (faces.size == 1) {
-                            val face = faces[0]
-                            onResult(convertsLandmarksIntoJson(face.allContours))
-                        } else if (faces.isEmpty()) {
-                            Log.e("MLKit", "WARN: No faces detected")
-                            onResult(ArrayList())
+                        val allFaces = ArrayList<List<Pair<Float, Float>>>()
+                        for(face in faces) {
+                            allFaces.add(convertsLandmarksIntoJson(face.allContours))
                         }
-                        else {
-                            Log.e("MLKit", "WARN: Two or more faces detected")
-                            onResult(null)
-                        }
+                        onResult(allFaces)
                     }
                 }
                 .addOnFailureListener { e ->
